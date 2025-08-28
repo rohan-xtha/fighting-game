@@ -1,4 +1,3 @@
-# Use official Python image
 FROM python:3.9-slim
 
 # Set environment variables
@@ -27,4 +26,4 @@ COPY . .
 EXPOSE 10000
 
 # Command to run the application
-CMD ["python", "server.py"]
+CMD python server.py
