@@ -25,5 +25,5 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 10000
 
-# Command to run the application
-CMD python server.py
+# Command to run the application (using shell form for better compatibility)
+CMD ["python", "server.py"]
