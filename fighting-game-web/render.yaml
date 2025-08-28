@@ -1,12 +1,4 @@
 services:
   - type: web
     name: fighting-game
-    runtime: docker
     plan: free
-    dockerContext: .
-    dockerfilePath: Dockerfile
-    envVars:
-      - key: PORT
-        value: 10000
-      - key: PYTHONUNBUFFERED
-        value: '1'
