@@ -1,22 +1,35 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from collections import defaultdict
 import random
 import time
+import os
+import eventlet
+eventlet.monkey_patch()
 
-app = Flask(__name__, static_folder='.', static_url_path='')
-app.config['SECRET_KEY'] = 'your-secret-key'  # In production, use environment variables
+app = Flask(__name__, 
+            static_folder='.',
+            static_url_path='',
+            template_folder='.')
 
-# Allow all origins for development
+# Use environment variable for secret key in production
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+# Configure Socket.IO
 socketio = SocketIO(app, 
                    cors_allowed_origins="*",
                    async_mode='eventlet',
                    logger=True,
-                   engineio_logger=True)
+                   engineio_logger=True,
+                   ping_timeout=60,
+                   ping_interval=25,
+                   max_http_buffer_size=1e8)  # 100MB max message size
 
 # For production
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    print(f"Starting server on port {port}")
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
 
 @app.route('/')
 def index():
