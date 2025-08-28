@@ -25,16 +25,6 @@ socketio = SocketIO(app,
                    ping_interval=25,
                    max_http_buffer_size=1e8)  # 100MB max message size
 
-# For production
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    print(f"Starting server on port {port}")
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
-
-@app.route('/')
-def index():
-    return app.send_static_file('index.html')
-
 # Store active players and matchmaking queue
 players_online = set()
 matchmaking_queue = []
@@ -140,3 +130,4 @@ def handle_game_over(data):
 if __name__ == '__main__':
     print("Starting game server...")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+v
