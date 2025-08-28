@@ -1,10 +1,2 @@
-services:
-  - type: web
-    name: fighting-game
-    plan: free
-    dockerfile: Dockerfile
-    envVars:
-      - key: PORT
-        value: 10000
-      - key: PYTHONUNBUFFERED
-        value: '1'
+# Railway deployment configuration
+# This file is intentionally left empty as Railway will use the Dockerfile directly
