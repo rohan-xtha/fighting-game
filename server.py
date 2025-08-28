@@ -1,143 +1,142 @@
-import socket
-import json
-import threading
+from flask import Flask, render_template, request, send_from_directory
+from flask_socketio import SocketIO, emit, join_room, leave_room
+from collections import defaultdict
+import random
 import time
+import os
+import eventlet
+eventlet.monkey_patch()
 
-class GameServer:
-    def __init__(self, host='0.0.0.0', port=5555):
-        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle's algorithm
-        self.server.bind((host, port))
-        self.server.listen(2)  # Allow 2 players
-        self.clients = []
-        self.game_state = {
-            'players': {
-                'player1': {
-                    'x': 200, 'y': 0, 'health': 100, 'action': 'idle',
-                    'facing_right': True, 'is_attacking': False, 'animation_frame': 0
-                },
-                'player2': {
-                    'x': 800, 'y': 0, 'health': 100, 'action': 'idle',
-                    'facing_right': False, 'is_attacking': False, 'animation_frame': 0
-                }
-            },
-            'game_started': False
-        }
-        self.lock = threading.Lock()
-        self.player_count = 0
-        print(f"Server started on {host}:{port}")
+app = Flask(__name__, 
+            static_folder='.',
+            static_url_path='',
+            template_folder='.')
 
-    def handle_client(self, conn, addr):
-        print(f"New connection from {addr}")
+# Use environment variable for secret key in production
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+# Configure Socket.IO
+socketio = SocketIO(app, 
+                   cors_allowed_origins="*",
+                   async_mode='eventlet',
+                   logger=True,
+                   engineio_logger=True,
+                   ping_timeout=60,
+                   ping_interval=25,
+                   max_http_buffer_size=1e8)  # 100MB max message size
+
+# For production
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    print(f"Starting server on port {port}")
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
+
+# Store active players and matchmaking queue
+players_online = set()
+matchmaking_queue = []
+active_matches = {}
+player_data = {}
+
+@socketio.on('connect')
+def handle_connect():
+    print(f"Client connected: {request.sid}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"Client disconnected: {request.sid}")
+    if request.sid in players_online:
+        players_online.remove(request.sid)
+        if request.sid in player_data:
+            del player_data[request.sid]
+    
+    # Remove from matchmaking queue
+    if request.sid in matchmaking_queue:
+        matchmaking_queue.remove(request.sid)
+    
+    # Handle disconnection during a match
+    for match_id, players in list(active_matches.items()):
+        if request.sid in players:
+            other_player = players[0] if players[1] == request.sid else players[1]
+            emit('opponent_disconnected', room=other_player)
+            del active_matches[match_id]
+            break
+
+@socketio.on('player_online')
+def handle_player_online(data):
+    player_id = request.sid
+    players_online.add(player_id)
+    player_data[player_id] = {
+        'username': data.get('username', 'Player'),
+        'status': 'online'
+    }
+    emit('player_count', {'count': len(players_online)}, broadcast=True)
+
+@socketio.on('join_matchmaking')
+def handle_join_matchmaking():
+    player_id = request.sid
+    
+    if player_id in matchmaking_queue:
+        return
+    
+    matchmaking_queue.append(player_id)
+    player_data[player_id]['status'] = 'searching'
+    
+    # Try to find a match
+    if len(matchmaking_queue) >= 2:
+        player1 = matchmaking_queue.pop(0)
+        player2 = matchmaking_queue.pop(0)
         
-        # Assign player ID (1 or 2)
-        with self.lock:
-            self.player_count += 1
-            player_id = f'player{min(self.player_count, 2)}'  # Only allow 2 players
-            if self.player_count > 2:
-                conn.send(json.dumps({'error': 'Server is full'}).encode())
-                conn.close()
-                return
+        match_id = f"match_{int(time.time())}_{random.randint(1000, 9999)}"
+        active_matches[match_id] = [player1, player2]
         
-        try:
-            # Send initial game state and player ID
-            conn.send(json.dumps({
-                'type': 'init',
-                'player_id': player_id,
-                'game_state': self.game_state
-            }).encode())
-            
-            # If this is the second player, start the game
-            if self.player_count == 2:
-                self.broadcast({'type': 'game_start'})
-                self.game_state['game_started'] = True
-            
-            while True:
-                try:
-                    data = conn.recv(4096).decode()
-                    if not data:
-                        break
-                        
-                    # Update game state based on player input
-                    player_input = json.loads(data)
-                    self.update_game_state(player_id, player_input)
-                    
-                except json.JSONDecodeError:
-                    print(f"Invalid JSON from {addr}")
-                    break
-                except ConnectionResetError:
-                    break
-                    
-        except Exception as e:
-            print(f"Error with client {addr}: {e}")
-        finally:
-            print(f"Client {addr} disconnected")
-            with self.lock:
-                if player_id in ['player1', 'player2']:
-                    self.player_count -= 1
-                    self.game_state['players'][player_id]['health'] = 0
-                    self.broadcast({
-                        'type': 'player_disconnected',
-                        'player_id': player_id
-                    })
-            conn.close()
-    
-    def update_game_state(self, player_id, player_input):
-        with self.lock:
-            if 'move' in player_input:
-                self.game_state['players'][player_id]['x'] += player_input['move']
-            if 'action' in player_input:
-                self.game_state['players'][player_id]['action'] = player_input['action']
-            if 'facing_right' in player_input:
-                self.game_state['players'][player_id]['facing_right'] = player_input['facing_right']
-            if 'animation_frame' in player_input:
-                self.game_state['players'][player_id]['animation_frame'] = player_input['animation_frame']
-            if 'health' in player_input:
-                self.game_state['players'][player_id]['health'] = player_input['health']
-            if 'is_attacking' in player_input:
-                self.game_state['players'][player_id]['is_attacking'] = player_input['is_attacking']
-            
-            # Broadcast updated game state to all clients
-            self.broadcast({
-                'type': 'game_state',
-                'game_state': self.game_state
-            })
-    
-    def broadcast(self, data):
-        """Send data to all connected clients"""
-        message = json.dumps(data).encode()
-        for client, _ in self.clients:
-            try:
-                client.send(message)
-            except:
-                continue
-    
-    def start(self):
-        print("Waiting for connections...")
-        try:
-            while True:
-                conn, addr = self.server.accept()
-                client_thread = threading.Thread(
-                    target=self.handle_client,
-                    args=(conn, addr),
-                    daemon=True
-                )
-                self.clients.append((conn, addr))
-                client_thread.start()
-        except KeyboardInterrupt:
-            print("\nShutting down server...")
-        finally:
-            for client, _ in self.clients:
-                client.close()
-            self.server.close()
+        # Notify both players
+        emit('match_found', {'match_id': match_id, 'opponent': player_data[player2]['username']}, room=player1)
+        emit('match_found', {'match_id': match_id, 'opponent': player_data[player1]['username']}, room=player2)
+        
+        player_data[player1]['status'] = 'in_game'
+        player_data[player2]['status'] = 'in_game'
+    else:
+        emit('searching_for_opponent', {'position': len(matchmaking_queue)})
 
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Game Server')
-    parser.add_argument('--host', type=str, default='0.0.0.0', help='Host IP to bind to')
-    parser.add_argument('--port', type=int, default=5555, help='Port to listen on')
-    args = parser.parse_args()
-    
-    server = GameServer(host=args.host, port=args.port)
-    server.start()
+@socketio.on('leave_matchmaking')
+def handle_leave_matchmaking():
+    player_id = request.sid
+    if player_id in matchmaking_queue:
+        matchmaking_queue.remove(player_id)
+        player_data[player_id]['status'] = 'online'
+        emit('left_matchmaking')
+
+@socketio.on('player_ready')
+def handle_player_ready(data):
+    match_id = data.get('match_id')
+    if match_id in active_matches:
+        players = active_matches[match_id]
+        if request.sid in players:
+            player_index = players.index(request.sid)
+            emit('opponent_ready', {'player_number': player_index + 1}, room=players[1 - player_index])
+
+@socketio.on('player_input')
+def handle_player_input(data):
+    # Forward input to the other player
+    match_id = data.get('match_id')
+    if match_id in active_matches:
+        players = active_matches[match_id]
+        other_player = players[1] if players[0] == request.sid else players[0]
+        emit('opponent_input', {'input': data['input']}, room=other_player)
+
+@socketio.on('game_over')
+def handle_game_over(data):
+    match_id = data.get('match_id')
+    if match_id in active_matches:
+        players = active_matches[match_id]
+        other_player = players[1] if players[0] == request.sid else players[0]
+        emit('opponent_disconnected', room=other_player)
+        del active_matches[match_id]
+
+if __name__ == '__main__':
+    print("Starting game server...")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
