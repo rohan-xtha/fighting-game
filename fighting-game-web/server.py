@@ -139,15 +139,17 @@ if __name__ == '__main__':
         port = int(os.environ.get('PORT', 10000))
         logger.info(f"Starting server on port {port}...")
         
-        # Use eventlet web server for better WebSocket handling
-        import eventlet.wsgi
-        import eventlet
+        # Initialize Socket.IO with the app
+        socketio.init_app(app)
         
         # Start the server
-        eventlet.wsgi.server(
-            eventlet.listen(('0.0.0.0', port)),
+        socketio.run(
             app,
-            log_output=False
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            use_reloader=False,
+            log_output=True
         )
     except Exception as e:
         logger.error(f"Failed to start server: {str(e)}")
