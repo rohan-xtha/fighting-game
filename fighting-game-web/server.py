@@ -1,18 +1,25 @@
-from flask import Flask, render_template, request, send_from_directory
+import os
+import sys
+import logging
+import eventlet
+eventlet.monkey_patch()
+
+from flask import Flask, render_template, request, send_from_directory, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from collections import defaultdict
 import random
 import time
-import os
-import eventlet
-eventlet.monkey_patch()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
 app = Flask(__name__, 
             static_folder='.',
             static_url_path='',
             template_folder='.')
 
-# Use environment variable for secret key in production
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
 # Configure Socket.IO
@@ -128,6 +135,19 @@ def handle_game_over(data):
         del active_matches[match_id]
 
 if __name__ == '__main__':
-    print("Starting game server...")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
-v
+    try:
+        port = int(os.environ.get('PORT', 10000))
+        logger.info(f"Starting server on port {port}...")
+        
+        # Simple production server
+        socketio.run(
+            app,
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            use_reloader=False,
+            log_output=True
+        )
+    except Exception as e:
+        logger.error(f"Failed to start server: {str(e)}")
+        raise
