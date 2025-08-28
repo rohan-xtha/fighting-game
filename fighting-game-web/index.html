@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fighting Game - Web Version</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // This will be replaced with your Render URL after deployment
+        const SERVER_URL = 'http://localhost:5000';
+    </script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #222;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #game-container {
+            margin: 20px;
+            text-align: center;
+        }
+        #game-canvas {
+            border: 2px solid #444;
+            background: #000;
+        }
+        #loading {
+            margin: 20px;
+            font-size: 1.2em;
+        }
+        #controls {
+            margin: 10px;
+            padding: 10px;
+            background: #333;
+            border-radius: 5px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <h1>Fighting Game</h1>
+    <div id="game-container">
+        <canvas id="game-canvas" width="800" height="600"></canvas>
+        <div id="controls">
+            <h3>Controls:</h3>
+            <p><strong>Player 1 (WASD + F/G)</strong></p>
+            <p>Move: W, A, S, D | Punch: F | Kick: G</p>
+            <p><strong>Player 2 (Arrow Keys + K/L)</strong></p>
+            <p>Move: ↑, ←, ↓, → | Punch: K | Kick: L</p>
+        </div>
+    </div>
+    <div id="loading">Loading game... (This may take a minute)</div>
+
+    <script>
+        // Initialize Pyodide
+        async function main() {
+            let pyodide = await loadPyodide({
+                indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/"
+            });
+            
+            // Load required Python packages
+            document.getElementById('loading').textContent = 'Installing dependencies...';
+            await pyodide.loadPackage(['micropip']);
+            
+            // Load pygame and other dependencies
+            try {
+                await pyodide.runPythonAsync(`
+                import micropip
+                await micropip.install('pygame')
+                `);
+                
+                // Load and run the game
+                document.getElementById('loading').textContent = 'Starting game...';
+                const response = await fetch('game_web.py');
+                const gameCode = await response.text();
+                await pyodide.runPythonAsync(gameCode);
+                
+                // Hide loading message when game starts
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('loading').innerHTML = 
+                    'Error loading game. Please check console for details.<br>' + 
+                    'Make sure you are running this on a web server (not file://).';
+            }
+        }
+        
+        main();
+    </script>
+</body>
+</html>
